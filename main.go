@@ -5,51 +5,64 @@ import (
 	"encoding/csv"
 	"flag"
 	"fmt"
+	"math/rand"
 	"os"
 	"strings"
 	"time"
 )
 
+var (
+	defaultFileName = "examples/problems.csv"
+	defaultTimeout  = 30
+	defaultShuffle  = false
+)
+
 func main() {
 
-	filename := flag.String("f", "examples/problems.csv", "use -f for a csv filename")
-	timeoutSeconds := flag.Int("t", 30, "time in seconds before the timeout")
+	filename := flag.String("f", defaultFileName, "use to specify a CSV filename")
+	timeoutSeconds := flag.Int("t", defaultTimeout, "time in seconds for the quiz timeout")
+	shuffle := flag.Bool("shuffle", defaultShuffle, " boolean to enable shuffling of the questions")
 
 	flag.Parse()
+
 	println("Welcome to the Quiz-Game")
-	println("Filename: ", *filename)
 
 	// open file using fileName
 	file, err := os.Open(*filename)
-
 	if err != nil {
 		exit(fmt.Sprintf("failed to open file:%s", *filename))
 	}
-
+	// create CSV reader
 	r := csv.NewReader(file)
-
+	// read all records in CSV and return as slice[][]string
 	records, err := r.ReadAll()
 	if err != nil {
-		exit("Failed to read CSV file")
+		exit(fmt.Sprintf("Failed to read from CSV file: %v", err))
+	}
+
+	// bonus, shuffle mode to randomize question order
+	if *shuffle {
+		rand.Seed(time.Now().UnixNano())
+		rand.Shuffle(len(records), func(i, j int) {
+			records[i], records[j] = records[j], records[i]
+		})
 	}
 
 	c := make(chan int)
 	timer := time.NewTimer(time.Second * time.Duration(*timeoutSeconds))
 
-	fmt.Println("timer fired with:", *timeoutSeconds, "seconds")
+	fmt.Println("Timer started with:", *timeoutSeconds, "seconds of timeout. Hurry up!")
 	go quiz(records, c, timer)
 
 	answers := <-c
 
-	fmt.Println()
-	fmt.Println("Total number of correct answers questions:", answers, "/", len(records))
+	fmt.Printf("Total number of correct answers: %d/%d\n", answers, len(records))
 }
 
 func quiz(records [][]string, c chan int, timer *time.Timer) {
 	correctAnswers := 0
 
 	for _, record := range records {
-
 		answerCh := make(chan string)
 		go func() {
 			fmt.Println(record[0])
@@ -62,6 +75,9 @@ func quiz(records [][]string, c chan int, timer *time.Timer) {
 				exit(fmt.Sprintf("Error reading from STdin: %v", err))
 			}
 			text = strings.TrimSuffix(text, "\n")
+			text = strings.TrimSpace(text)
+			text = strings.ToLower(text)
+
 			answerCh <- text
 		}()
 
@@ -70,7 +86,7 @@ func quiz(records [][]string, c chan int, timer *time.Timer) {
 			c <- correctAnswers
 			return
 		case answer := <-answerCh:
-			if answer == record[1] {
+			if answer == strings.ToLower(record[1]) {
 				correctAnswers++
 			}
 
